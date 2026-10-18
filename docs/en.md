@@ -54,8 +54,8 @@ without an answer, nothing is sent.
 - **On and off**: only the Gladys buttons work. A "turn on" or "turn off"
   from a voice assistant, HomeKit or the MCP targets the On/Off state, which
   is read only: it is refused.
-- **Mode and setpoint**: with the option on, HomeKit, a voice assistant, the
-  MCP and scenes can change them, **heating included**. Turn the option on
+- **Mode and setpoint**: with the option on, HomeKit, the MCP and Gladys
+  scenes can change them, **heating included**. Turn the option on
   only if that suits you.
 - **Option off**: the air conditioners are no longer read, their states no
   longer sent, and every command is refused. An air conditioner already

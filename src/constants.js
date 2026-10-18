@@ -115,8 +115,9 @@ export const TIMINGS = {
   refreshAhead: 10 * MINUTE,
   /** ...but never sooner than this after it was issued (a very short lifetime). */
   refreshMinimum: MINUTE,
-  /** When the token answer has no usable expires_in. */
+  /** When the token answer has no usable expires_in, or one under tokenMinimumLifetime. */
   tokenDefault: HOUR,
+  tokenMinimumLifetime: 2 * MINUTE,
   /** A request is never sent with a token that ends within this margin. */
   tokenMargin: 30 * SECOND,
   /** The appliance lists are read again this often (the states at every cycle). */

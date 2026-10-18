@@ -64,7 +64,12 @@ export class WhirlpoolApp {
     this.now = now;
     this.timers = timers;
     this.store = store;
-    this.client = new WhirlpoolClient({ transport, now, onChange: () => this.tokensChanged() });
+    this.client = new WhirlpoolClient({
+      transport,
+      now,
+      timers,
+      onChange: () => this.tokensChanged(),
+    });
     this.publisher = new StatePublisher({ gladys, logger, now, timers });
     this.config = normalizeConfig();
     this.memory = normalizeMemory(null);
@@ -325,7 +330,8 @@ export class WhirlpoolApp {
       const lifetime = Math.max(0, tokens.expiresAt - tokens.issuedAt);
       const at = tokens.expiresAt - Math.min(TIMINGS.refreshAhead, lifetime / 2);
       // Never sooner than a minute after issue, nor later than half the lifetime.
-      delay = Math.max(Math.min(TIMINGS.refreshMinimum, lifetime / 2), at - this.now());
+      // Never sooner than a minute (an absolute floor).
+      delay = Math.max(TIMINGS.refreshMinimum, at - this.now());
     }
     const generation = this.generation;
     this.refreshTimer = this.timers.setTimeout(() => {
@@ -895,7 +901,7 @@ export class WhirlpoolApp {
       this.applyReading(appliance, attrs);
       await this.flush();
     } catch (err) {
-      throw await this.commandFailure(err);
+      throw await this.commandFailure(err, { read: true });
     }
     if (this.readings.get(said)?.reading?.online !== true) {
       throw this.commandError(COMMAND.offline);
@@ -937,7 +943,8 @@ export class WhirlpoolApp {
     this.scheduleNext(TIMINGS.confirmRead);
   }
 
-  async commandFailure(err) {
+  /** `read`: the failure of the read just before the command (nothing was sent). */
+  async commandFailure(err, { read = false } = {}) {
     if (!(err instanceof WhirlpoolError)) {
       return err;
     }
@@ -949,10 +956,15 @@ export class WhirlpoolApp {
     }
     this.logger.warn(`Whirlpool command not done: ${errorReason(err)}`);
     switch (err.kind) {
+      case 'locked':
+      case 'refused':
+      case 'login_rejected':
+      case 'no_credentials':
+      case 'no_client':
       case 'rate_limited':
-        await this.pause(err);
-        await this.setStatus(this.connectedOnce, T.rateLimited(age(this.pausedUntil - this.now())));
-        return this.commandError(COMMAND.paused);
+        // The account's stop or pause: persisted and shown like a cycle's.
+        await this.failed(err);
+        return this.commandError(COMMAND.blocked);
       case 'invalid_command':
         return this.commandError(COMMAND.refused);
       case 'cancelled':
@@ -968,7 +980,11 @@ export class WhirlpoolApp {
         this.scheduleNext(0);
         return this.commandError(COMMAND.blocked);
       default:
-        return this.commandError(`Whirlpool: ${errorReason(err)}`);
+        return this.commandError(
+          read
+            ? COMMAND.offline
+            : { en: `Whirlpool: ${errorReason(err)}`, fr: `Whirlpool : ${errorReason(err)}` },
+        );
     }
   }
 

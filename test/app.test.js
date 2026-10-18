@@ -591,21 +591,74 @@ test('K: the shared list never swallows a locked account; then no POST at all', 
   assert.equal(posts(), before, '0 POST after the lock');
 });
 
-test('E: a token living 60 s is renewed in time, without a password loop', async (t) => {
-  const server = fakeWhirlpool({ lifetime: 60 });
+for (const seconds of [1, 20]) {
+  test(`E${seconds}: expires_in of ${seconds} s is abnormal: at most one renewal per minute`, async (t) => {
+    const server = fakeWhirlpool({ lifetime: seconds });
+    const { gladys, advance } = await setup(t, { server, create: false });
+    const reads = server.reads(SAIDS.washer).length;
+    await advance(10 * MINUTE, 5 * SECOND);
+    assert.ok(server.tokenCalls('refresh_token').length <= 10, 'at most one per minute');
+    assert.equal(server.tokenCalls('password').length, 1, 'no password loop');
+    assert.ok(server.reads(SAIDS.washer).length > reads);
+    assert.equal(gladys.fake.connectionStatus.connected, true);
+  });
+}
+
+test('L: a locked account during a command stops it: one POST in all', async (t) => {
+  const store = memoryStore();
+  const { gladys, app, server, set, advance } = await setup(t, {
+    store,
+    config: { ...CONFIG, enable_aircon: true },
+  });
+  app.client.tokens.expiresAt = Date.now();
+  server.queue.push({ match: (r) => r.path === '/oauth/token', status: 423, body: '' });
+  const posts = () => server.requests.filter((r) => r.method === 'POST').length;
+  const before = posts();
+  const ack = await set(SAIDS.aircon, 'power-on', 1);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /Non connecté/);
+  assert.equal(store.data.block.kind, 'locked', 'the stop is persisted');
+  assert.match(message(gladys).en, /locked/);
+  await advance(2 * HOUR, MINUTE);
+  assert.equal(posts() - before, 1, 'one POST in all');
+});
+
+test('N: a timeout of the shared list lets the owned appliances be read', async (t) => {
+  const server = fakeWhirlpool();
+  server.before = (r) => {
+    if (r.path === '/api/v1/share-accounts/appliances') {
+      throw new WhirlpoolError('timeout', 'no answer within 20 s');
+    }
+  };
   const { gladys } = await setup(t, { server, create: false });
-  const reads = server.reads(SAIDS.washer).length;
-  t.mock.timers.tick(0);
-  for (let i = 0; i < 60; i += 1) {
-    t.mock.timers.tick(5 * SECOND);
-    await settle();
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  assert.ok(gladys.fake.discoveredDevices.some((d) => d.external_id === device(SAIDS.washer)));
+  assert.ok(!gladys.fake.discoveredDevices.some((d) => d.external_id === device(SAIDS.sharedOven)));
+});
+
+test('M: an appliance refused (403) is not renewed for again while the token works', async (t) => {
+  const { server, advance, gladys } = await setup(t);
+  for (let i = 0; i < 30; i += 1) {
+    server.queue.push({
+      match: (r) => r.path === `/api/v1/appliance/${SAIDS.oven}`,
+      status: 403,
+      body: { e: 1 },
+    });
   }
-  assert.ok(server.tokenCalls('refresh_token').length >= 4, 'renewed before each end');
-  assert.equal(server.tokenCalls('password').length, 1);
-  assert.ok(server.reads(SAIDS.washer).length > reads);
+  await advance(5 * MINUTE, 10 * SECOND);
+  assert.ok(server.reads(SAIDS.oven).length >= 5, 'still read at each cycle');
+  assert.ok(server.tokenCalls('refresh_token').length <= 1, 'one renewal at most');
   assert.equal(gladys.fake.connectionStatus.connected, true);
 });
 
+test('M2: a failed read just before a command says nothing was sent', async (t) => {
+  const { server, set } = await setup(t, { config: { ...CONFIG, enable_aircon: true } });
+  server.queue.push({ match: (r) => r.path === `/api/v1/appliance/${SAIDS.aircon}`, status: 404 });
+  const ack = await set(SAIDS.aircon, 'power-on', 1);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /rien n'a été envoyé/);
+  assert.equal(server.commands().length, 0);
+});
 test('6: a token endpoint error stops the cycle: one POST /oauth/token, not one per appliance', async (t) => {
   const { gladys, app, server, advance } = await setup(t);
   app.client.tokens.expiresAt = Date.now();

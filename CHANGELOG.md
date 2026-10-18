@@ -60,5 +60,13 @@ the notes of the version's GitHub Release.
 - The stops in `/data` are tied to a 4-digit keyed fingerprint (HMAC) of
   the credentials. Docs: the limits of the "Cycle finished" trigger and of
   the air conditioner commands (voice assistants, HomeKit, MCP, scenes).
+- A token whose lifetime is under 2 minutes is treated as abnormal (1 hour
+  assumed): at most one renewal per minute.
+- A locked account or refused credentials met by a command stop the
+  integration like a read does; a 429 pauses it.
+- A shared list that times out no longer hides the owned appliances.
+- An appliance refused with HTTP 403 no longer forces a renewal at every
+  read.
+- A failed read just before a command says that nothing was sent.
 
 [Unreleased]: https://github.com/LM1LC3N7/gladys-whirlpool/commits/main

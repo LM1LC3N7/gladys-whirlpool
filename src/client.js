@@ -22,7 +22,14 @@ import {
 export const ID = /^[A-Za-z0-9_.-]{1,64}$/;
 
 /** The errors of the shared list that are ignored (sharing is not offered everywhere). */
-const SHARED_IGNORED = new Set(['http', 'bad_response', 'size', 'unavailable', 'network']);
+const SHARED_IGNORED = new Set([
+  'http',
+  'bad_response',
+  'size',
+  'unavailable',
+  'network',
+  'timeout',
+]);
 
 const text = (value, max = 256) =>
   typeof value === 'string' || typeof value === 'number' ? String(value).slice(0, max) : '';
@@ -64,7 +71,12 @@ export function tokensOf(json, now, previous) {
       ? json.refresh_token
       : previous?.refresh;
   const seconds = Number(json.expires_in);
-  const lifetime = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : TIMINGS.tokenDefault;
+  // Less than 2 minutes is not a real lifetime (a unit or a server error):
+  // the default is used, and a refused token is renewed on demand.
+  const lifetime =
+    Number.isFinite(seconds) && seconds * 1000 >= TIMINGS.tokenMinimumLifetime
+      ? seconds * 1000
+      : TIMINGS.tokenDefault;
   const accountId = text(json.accountId, 64);
   return {
     tokens: { access, refresh: refresh ?? null, expiresAt: now + lifetime, issuedAt: now },
@@ -73,7 +85,10 @@ export function tokensOf(json, now, previous) {
 }
 
 export class WhirlpoolClient {
-  constructor({ transport = httpRequest, now = Date.now, onChange } = {}) {
+  constructor({ transport = httpRequest, now = Date.now, timers = globalThis, onChange } = {}) {
+    this.timers = timers;
+    /** Appliance paths refused (403) with the current token: not renewed for again. */
+    this.forbidden = { token: undefined, paths: new Set() };
     this.transport = transport;
     this.now = now;
     /** Called after the tokens or the account id changed. */
@@ -327,10 +342,9 @@ export class WhirlpoolClient {
     }
     let timer;
     const late = new Promise((resolve) => {
-      timer = setTimeout(
-        resolve,
+      timer = this.timers.setTimeout(
+        () => resolve('late'),
         Math.max(0, deadline - TIMINGS.commandMinimum - this.now()),
-        'late',
       );
     });
     try {
@@ -338,7 +352,7 @@ export class WhirlpoolClient {
         throw new WhirlpoolError('late', 'a sign-in is in progress');
       }
     } finally {
-      clearTimeout(timer);
+      this.timers.clearTimeout(timer);
     }
   }
 
@@ -419,13 +433,29 @@ export class WhirlpoolClient {
      * except a 403 on one appliance's path, which is that appliance's
      * (`forbidden`): a 401, or a refusal of an account path, is the session.
      */
-    const refusal = (err, message) =>
-      device && err.status === 403
-        ? new WhirlpoolError('forbidden', 'Whirlpool refused this appliance', { status: 403 })
-        : new WhirlpoolError('session_refused', message, { status: err.status });
+    const forbidden = () =>
+      new WhirlpoolError('forbidden', 'Whirlpool refused this appliance', { status: 403 });
+    const refusal = (err, message) => {
+      if (device && err.status === 403) {
+        // Remembered with this token: no renewal for this appliance again
+        // while the other calls work with it.
+        if (this.forbidden.token !== this.tokens?.access) {
+          this.forbidden = { token: this.tokens?.access, paths: new Set() };
+        }
+        this.forbidden.paths.add(device);
+        return forbidden();
+      }
+      return new WhirlpoolError('session_refused', message, { status: err.status });
+    };
+    const done = (body) => {
+      if (device) {
+        this.forbidden.paths.delete(device);
+      }
+      return body;
+    };
     const fresh = await this.ensureToken({ allowLogin, timeout, deadline });
     try {
-      return await this.apiSend(method, path, { ...options, timeout, deadline });
+      return done(await this.apiSend(method, path, { ...options, timeout, deadline }));
     } catch (err) {
       if (err.kind !== 'unauthorized') {
         throw err;
@@ -433,11 +463,19 @@ export class WhirlpoolClient {
       if (fresh || deadline !== undefined) {
         throw refusal(err, 'the session was refused');
       }
+      if (
+        device &&
+        err.status === 403 &&
+        this.forbidden.token === this.tokens?.access &&
+        this.forbidden.paths.has(device)
+      ) {
+        throw forbidden();
+      }
     }
     // A dead refresh token falls back to one password sign-in (a cycle only).
     await this.ensureToken({ allowLogin, timeout, force: true });
     try {
-      return await this.apiSend(method, path, { ...options, timeout });
+      return done(await this.apiSend(method, path, { ...options, timeout }));
     } catch (err) {
       if (err.kind === 'unauthorized') {
         throw refusal(err, 'the session was refused right after a renewal');
@@ -516,7 +554,7 @@ export class WhirlpoolClient {
 
   /** The attributes of one appliance: name -> string value (httpapi/appliance.py fetch_data). */
   async data(said, options = {}) {
-    const json = await this.callJson('GET', PATHS.data(said), { ...options, device: true });
+    const json = await this.callJson('GET', PATHS.data(said), { ...options, device: said });
     const attributes = json?.attributes;
     if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) {
       throw new WhirlpoolError('bad_response', 'Whirlpool sent no attributes');
@@ -535,7 +573,7 @@ export class WhirlpoolClient {
   async command(said, attributes, options = {}) {
     await this.call('POST', PATHS.command, {
       ...options,
-      device: true,
+      device: said,
       payload: { body: attributes, header: { said, command: 'setAttributes' } },
     });
   }

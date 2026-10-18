@@ -42,14 +42,22 @@ test('the account key is a hash, not the e-mail, and depends on brand and region
 
 test('token answers: lifetime, account id, refresh token kept when not sent', () => {
   const now = 1000;
-  const a = tokensOf({ access_token: 'a', refresh_token: 'r', expires_in: 100, accountId: 7 }, now);
+  const a = tokensOf(
+    { access_token: 'a', refresh_token: 'r', expires_in: 3000, accountId: 7 },
+    now,
+  );
   assert.deepEqual(a, {
-    tokens: { access: 'a', refresh: 'r', expiresAt: now + 100_000, issuedAt: now },
+    tokens: { access: 'a', refresh: 'r', expiresAt: now + 3_000_000, issuedAt: now },
     accountId: '7',
   });
   const b = tokensOf({ access_token: 'b' }, now, a.tokens);
   assert.equal(b.tokens.refresh, 'r');
   assert.equal(b.tokens.expiresAt, now + TIMINGS.tokenDefault);
+  assert.equal(
+    tokensOf({ access_token: 'c', expires_in: 100 }, now).tokens.expiresAt,
+    now + TIMINGS.tokenDefault,
+    'under 2 minutes is abnormal',
+  );
   assert.throws(() => tokensOf({}, now), { kind: 'bad_response' });
 });
 

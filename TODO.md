@@ -147,8 +147,17 @@ up to date at the end of every milestone.
   again right before the request leaves, after any renewal.
 - A command answered by a 5xx other than 503 may have been done: "sent,
   without confirmation", read again 5 s later. A 503 is "not done".
-- A token living less than 2 minutes keeps a quarter of its life as the
-  margin (not 30 s), and its timer fires at half its life at the latest.
+- An `expires_in` under 2 minutes is abnormal: the default lifetime (1 h) is
+  used, and a refused token is renewed on demand. The renewal timer has an
+  absolute floor of 1 minute: at most one renewal per minute (round 2).
+- Round 2: a locked account, refused or rejected credentials and a 429 met
+  by a command call `failed()` (the stop or pause is persisted and shown)
+  and the command answers "not connected"; a timeout of the shared list is
+  ignored like its other endpoint errors (an `auth` error never is); an
+  appliance refused with 403 is remembered with the current token and not
+  renewed for again while the other calls work with it; a failed read just
+  before a command answers "nothing was sent"; the client's timers are the
+  injected ones.
 - A command waits for a sign-in in progress only within its budget (then
   `late`, nothing sent).
 - Command errors are in the configured language (fr/en).

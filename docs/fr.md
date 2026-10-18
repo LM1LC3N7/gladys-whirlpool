@@ -58,8 +58,8 @@ réponse, rien n'est envoyé.
 - **Marche et arrêt** : seuls les boutons de Gladys marchent. Un « allume »
   ou « éteins » d'un assistant vocal, de HomeKit ou du MCP vise l'état
   Marche/Arrêt, en lecture seule : il est refusé.
-- **Mode et consigne** : quand l'option est cochée, HomeKit, un assistant
-  vocal, le MCP et les scènes peuvent les changer, **chauffage compris**.
+- **Mode et consigne** : quand l'option est cochée, HomeKit, le MCP et les
+  scènes de Gladys peuvent les changer, **chauffage compris**.
   Ne cochez l'option que si cela vous convient.
 - **Option décochée** : les climatiseurs ne sont plus lus, leurs états ne
   sont plus envoyés et toute commande est refusée. Un climatiseur déjà ajouté

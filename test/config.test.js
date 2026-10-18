@@ -147,3 +147,35 @@ test('M7: a SAID longer than 64 characters is dropped, never cut', () => {
   assert.equal(applianceOf({ SAID: 'A'.repeat(65) }), undefined);
   assert.equal(applianceOf({ SAID: 'A'.repeat(64) }).said.length, 64);
 });
+
+test('a locked or refused answer is given to the waiting steps: never a second POST', async () => {
+  for (const [status, kind] of [
+    [423, 'locked'],
+    [400, 'refused'],
+  ]) {
+    let posts = 0;
+    const client = new WhirlpoolClient({
+      transport: async () => {
+        posts += 1;
+        return { status, headers: {}, body: '{"error":"x"}' };
+      },
+    });
+    client.configure({
+      email: 'e',
+      password: 'p',
+      brand: 'whirlpool',
+      region: 'eu',
+      client: CLIENTS.eu.whirlpool,
+      tokens: { access: null, refresh: 'r', expiresAt: 0, issuedAt: 0 },
+    });
+    const first = kind === 'locked' ? client.refresh() : client.signIn();
+    const waiting = [client.signIn(), client.refresh(), client.signIn()];
+    for (const step of [first, ...waiting]) {
+      await assert.rejects(step, { kind });
+    }
+    assert.equal(posts, 1, `${kind}: one POST`);
+    client.clearStop();
+    await assert.rejects(client.signIn(), { kind });
+    assert.equal(posts, 2, 'the test button tries again');
+  }
+});

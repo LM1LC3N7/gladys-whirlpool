@@ -961,10 +961,13 @@ export class WhirlpoolApp {
       case 'login_rejected':
       case 'no_credentials':
       case 'no_client':
-      case 'rate_limited':
-        // The account's stop or pause: persisted and shown like a cycle's.
+        // The account's stop: persisted and shown like a cycle's.
         await this.failed(err);
         return this.commandError(COMMAND.blocked);
+      case 'rate_limited':
+        // The pause is persisted and shown like a cycle's.
+        await this.failed(err);
+        return this.commandError(COMMAND.paused);
       case 'invalid_command':
         return this.commandError(COMMAND.refused);
       case 'cancelled':
@@ -1015,6 +1018,7 @@ export class WhirlpoolApp {
       return T.busy;
     }
     this.lastTestAt = this.now();
+    this.client.clearStop();
     // One read per click: the button is how a stopped account is retried.
     this.blocked = undefined;
     this.sessionRetries = 0;

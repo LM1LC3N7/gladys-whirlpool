@@ -117,6 +117,12 @@ export class WhirlpoolClient {
     this.tokens = tokens?.refresh || tokens?.access ? tokens : null;
     this.accountId = typeof accountId === 'string' && ID.test(accountId) ? accountId : undefined;
     this.relogged = false;
+    this.stopped = undefined;
+  }
+
+  /** The user retries (the test button): a locked or refused account may be tried again. */
+  clearStop() {
+    this.stopped = undefined;
   }
 
   get hasCredentials() {
@@ -172,7 +178,14 @@ export class WhirlpoolClient {
 
   /** One sign-in step at a time: a job waits for the one in progress, then runs its own. */
   single(job) {
-    const run = (this.authenticating ?? Promise.resolve()).catch(() => {}).then(job);
+    // A locked or refused account answers every waiting step at once: never a second POST.
+    const guarded = () => {
+      if (this.stopped) {
+        throw this.stopped;
+      }
+      return job();
+    };
+    const run = (this.authenticating ?? Promise.resolve()).catch(() => {}).then(guarded);
     const tail = run.finally(() => {
       if (this.authenticating === tail) {
         this.authenticating = undefined;
@@ -212,7 +225,10 @@ export class WhirlpoolClient {
     }
     if (answer.status === 423) {
       // auth.py AccountLockedError.
-      throw new WhirlpoolError('locked', 'the Whirlpool account is locked', { status: 423 });
+      this.stopped = new WhirlpoolError('locked', 'the Whirlpool account is locked', {
+        status: 423,
+      });
+      throw this.stopped;
     }
     const json = tryJson(answer.body);
     if (answer.status === 403 && (!json || typeof json !== 'object')) {
@@ -240,7 +256,8 @@ export class WhirlpoolClient {
       throw new WhirlpoolError('network', 'the account changed during the sign-in');
     }
     if ([400, 401, 403].includes(status)) {
-      throw new WhirlpoolError('refused', 'e-mail or password refused', { status });
+      this.stopped = new WhirlpoolError('refused', 'e-mail or password refused', { status });
+      throw this.stopped;
     }
     if (status !== 200) {
       throw new WhirlpoolError('login_rejected', 'unexpected sign-in answer', { status });

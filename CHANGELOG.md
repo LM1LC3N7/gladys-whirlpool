@@ -68,5 +68,8 @@ the notes of the version's GitHub Release.
 - An appliance refused with HTTP 403 no longer forces a renewal at every
   read.
 - A failed read just before a command says that nothing was sent.
+- A locked account or a refused password answers every sign-in step that
+  was waiting for it: never a second request. A command met by a 429 says
+  the integration is paused.
 
 [Unreleased]: https://github.com/LM1LC3N7/gladys-whirlpool/commits/main

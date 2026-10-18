@@ -1,0 +1,48 @@
+{
+  "source": "GladysAssistant/Gladys server/utils/constants.js (commit 52dcb652, 2026-10-17)",
+  "types": {
+    "text": ["text", "select"],
+    "duration": ["decimal", "integer"],
+    "opening-sensor": ["decimal", "integer", "binary", "push", "unknown"],
+    "temperature-sensor": [
+      "min",
+      "max",
+      "average",
+      "probe",
+      "decimal",
+      "integer",
+      "binary",
+      "push",
+      "unknown"
+    ],
+    "air-conditioning": [
+      "binary",
+      "mode",
+      "target-temperature",
+      "fan-speed",
+      "swing-horizontal",
+      "swing-vertical"
+    ],
+    "button": ["click", "push"],
+    "humidity-sensor": ["decimal", "integer", "binary", "push", "unknown"]
+  },
+  "units": {
+    "text": [],
+    "duration": [
+      "microseconds",
+      "milliseconds",
+      "seconds",
+      "minutes",
+      "hours",
+      "days",
+      "weeks",
+      "months",
+      "years"
+    ],
+    "opening-sensor": [],
+    "temperature-sensor": ["celsius", "fahrenheit", "kelvin"],
+    "air-conditioning": ["celsius", "fahrenheit"],
+    "button": [],
+    "humidity-sensor": ["percent"]
+  }
+}

@@ -1,61 +1,133 @@
-# Demo Devices Template
+# Whirlpool 6th Sense for Gladys Assistant
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Shows in Gladys the connected appliances of your **Whirlpool**, **Maytag**
+or **KitchenAid** account ("6th Sense Live" apps, Europe or United States):
+washers, dryers and ovens read only, with a "Cycle finished" scene trigger,
+and the air conditioners behind an option.
+
+> **Unofficial API, never tested with a real appliance or account.** The
+> integration talks to the API of the apps, which Whirlpool does not
+> document and may change at any time. It was written from the
+> whirlpool-sixth-sense library (the one of the Home Assistant integration)
+> and tested only with made-up answers. Not affiliated with Whirlpool,
+> Maytag or KitchenAid.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One Gladys device per supported appliance:
 
-## Configuration
+| Appliance          | Gladys features (all read only, unless stated)                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| Washer             | State, Cycle, Phase (sensing, filling, soaking, washing, rinsing, spinning), Time remaining (min), Door |
+| Dryer              | State, Cycle, Phase (sensing, steaming, drying, cooling down), Time remaining (min), Door               |
+| Oven               | Oven state (standby, preheating, cooking), Oven temperature (°C), Oven door; same for the lower oven    |
+| Air conditioner \* | On/Off (state), Turn on and Turn off buttons, Mode, Setpoint (16 to 30 °C), Temperature, Humidity       |
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+\* only with the _Show the air conditioners_ option (off by default).
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+- **State** of a washer or dryer: standby, setting up, delayed start,
+  running, finishing, paused, complete, cancelled, error, power failure,
+  service mode, starting. The **phase** and the **time remaining** only mean
+  something during a cycle (otherwise "None" and 0).
+- **Door**: an opening sensor (open / closed).
+- **Oven temperature**: a probe, kept out of the room average. When the
+  oven is off, Whirlpool sends 0: the last value stays shown.
+- Refrigerators, microwaves and the appliances of "AWS IoT" accounts (the
+  most recent ones) are not shown yet.
 
-## Actions
+### No command of washers, dryers or ovens
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+The integration never starts, stops or sets **any** washer, dryer or oven:
+nothing is sent to these appliances. An oven is **never** heated from
+Gladys. No feature is a switch: an "everything off" from Gladys, a voice
+assistant or a scene cannot do anything to them.
 
-## Scenes
+### Air conditioners: off by default
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+With the _Show the air conditioners_ option, the air conditioners are shown
+and can be commanded: **Turn on** and **Turn off** buttons (never a switch),
+**Mode** (6th Sense/auto, cooling, **heating**, fan), **Setpoint** from 16
+to 30 °C. A value outside these bounds is refused and nothing is sent.
+Option off, they are neither read nor commanded, and an air conditioner
+already added refuses the commands.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+## "Cycle finished" scene trigger
 
-## Dashboard
+In a scene, choose the **Washer or dryer cycle finished** trigger, with an
+appliance (or any) and a type (or any). It fires once per cycle, when the
+appliance goes from a cycle (running, finishing, paused or delayed) to
+"Complete". Variables for the actions: appliance name, type, cycle. It is
+seen at the next read: up to the refresh interval late (60 s by default). A
+cycle that finishes while the integration restarts is not reported.
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+## Setup
+
+1. In Gladys, install the **Whirlpool 6th Sense** integration from the
+   store.
+2. Choose the **brand** (the app you use) and the **region** (Europe or
+   United States; Maytag exists in the United States only), then the
+   **e-mail** and **password** of the app. Save.
+3. Open the **Discovery** tab and add the appliances.
+
+The password field is a `secret` field: Gladys keeps it in its database (in
+clear, like every configuration value, and in its backups), never shows it
+again, and the integration sends it only to the Whirlpool cloud
+(`prod-api.whrcloud.eu` or `api.whrcloud.com`).
+
+Whirlpool sends no verification code at sign-in: the integration never asks
+for one. After the first sign-in, it renews its session with its refresh
+token, by a timer, before the token ends (the password is not sent again).
+If Whirlpool refuses that token, the integration signs in again **once**
+with the password; refused, it stops.
+
+## Refresh
+
+Each appliance is read every **60 seconds** by default (60 to 900, _Refresh
+interval_): one request per appliance. The appliance list is read again
+every 30 minutes (or after a click on "Scan" in Discovery).
+
+An air conditioner command is sent at once; the value sent is shown at once
+and not undone by a slightly late read (20 seconds). The commands of one
+appliance run one after the other. Gladys waits 5 seconds: when the cloud is
+too slow, the command is refused **before it is sent**. A command left
+without an answer is reported "sent, without confirmation" and the state is
+read again 5 seconds later.
 
 ## Troubleshooting
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+- **E-mail or password refused**: stopped, even after a restart. Check them,
+  and the brand and region, then save (or click _Test the connection_).
+  Never retried by itself, so the account is not locked.
+- **Account locked** (HTTP 423, too many attempts): stopped; unlock it in the
+  app, then _Test the connection_.
+- **Session refused** right after a new sign-in: a pause, then one try after
+  1 hour, 6 hours, then every 24 hours (kept after a restart). _Test the
+  connection_ retries at once.
+- **Too many requests (429)**: a pause of 1 minute to 6 hours (the cloud's
+  `Retry-After`, 10 minutes without it), for the reads, the commands and the
+  button, kept after a restart or a reconnection to Gladys.
+- **Cloud unreachable (5xx, network)**: new tries after 1, 2, 5, 10, then
+  every 15 minutes, never sooner than the interval.
+- An appliance that does not answer, or offline for Whirlpool, is marked
+  "unreachable" on its card; the others are still read.
+
+## Limits
+
+- Unofficial API: Whirlpool may change or block it.
+- No live updates (the websocket channel of the apps): one read per
+  interval.
+- No command of washers, dryers or ovens in this version.
+- One account per Gladys.
+- Never tested with a real appliance or account: please report what you see
+  on the [GitHub repository](https://github.com/LM1LC3N7/gladys-whirlpool/issues)
+  (without your e-mail or password).
+
+## Privacy
+
+The integration keeps in `/data/whirlpool-state.json` (readable by its
+container only): the refresh token (the access token stays in memory) and
+the account id, the account they belong to as a fingerprint of the brand,
+region and e-mail, the end of a 429 pause, and a stop (refused credentials,
+locked account, unexpected answer, refused session and its next try) tied to
+a salted fingerprint of the account and password. Neither the e-mail nor
+the password. Nothing is sent anywhere but the Whirlpool cloud.

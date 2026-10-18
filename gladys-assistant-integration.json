@@ -1,177 +1,284 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Whirlpool 6th Sense",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Whirlpool, Maytag and KitchenAid washers, dryers and ovens (read only), cycle end trigger.",
+    "fr": "Lave-linge, sèche-linge et fours Whirlpool, Maytag, KitchenAid (lecture), fin de cycle."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-whirlpool:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-whirlpool/main/cover.png",
+  "categories": ["appliances"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your Whirlpool, Maytag or KitchenAid account",
+        "fr": "Votre compte Whirlpool, Maytag ou KitchenAid"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Shows the connected appliances of your account (6th Sense Live apps, Europe or United States) in Gladys: washers and dryers (state, cycle, phase, time remaining, door, and a \"Cycle finished\" scene trigger), ovens (state, temperature and door, read only: never heated from Gladys), and air conditioners behind an option. Enter the brand, region, e-mail and password of the app, save, then add the appliances from the Discovery tab. Read every 60 seconds. Unofficial API, never tested with a real appliance or account. Not affiliated with Whirlpool, Maytag or KitchenAid.",
+        "fr": "Affiche dans Gladys les appareils connectés de votre compte (applications 6th Sense Live, Europe ou États-Unis) : lave-linge et sèche-linge (état, cycle, phase, temps restant, porte, et un déclencheur de scène « Cycle terminé »), fours (état, température et porte, en lecture seule : jamais mis en chauffe depuis Gladys), et climatiseurs derrière une option. Choisissez la marque, la région, l'e-mail et le mot de passe de l'application, enregistrez, puis ajoutez les appareils depuis l'onglet Découverte. Lecture toutes les 60 secondes. API non officielle, jamais testée avec un vrai appareil ni un vrai compte. Sans lien avec Whirlpool, Maytag ni KitchenAid."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-whirlpool/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-whirlpool/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
+      "key": "brand",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
+      "label": {
+        "en": "Brand (app)",
+        "fr": "Marque (application)"
+      },
+      "description": {
+        "en": "The app you use: each brand has its own account. Maytag exists in the United States only.",
+        "fr": "L'application que vous utilisez : chaque marque a son propre compte. Maytag n'existe qu'aux États-Unis."
+      },
+      "required": true,
+      "default": "whirlpool",
       "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
+        {
+          "value": "whirlpool",
+          "label": {
+            "en": "Whirlpool",
+            "fr": "Whirlpool"
+          }
+        },
+        {
+          "value": "maytag",
+          "label": {
+            "en": "Maytag (United States)",
+            "fr": "Maytag (États-Unis)"
+          }
+        },
+        {
+          "value": "kitchenaid",
+          "label": {
+            "en": "KitchenAid",
+            "fr": "KitchenAid"
+          }
+        }
       ]
     },
     {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "key": "region",
+      "type": "select",
+      "label": {
+        "en": "Region",
+        "fr": "Région"
+      },
+      "required": true,
+      "default": "eu",
+      "options": [
+        {
+          "value": "eu",
+          "label": {
+            "en": "Europe",
+            "fr": "Europe"
+          }
+        },
+        {
+          "value": "us",
+          "label": {
+            "en": "United States",
+            "fr": "États-Unis"
+          }
+        }
+      ]
+    },
+    {
+      "key": "email",
+      "type": "string",
+      "label": {
+        "en": "E-mail of the app",
+        "fr": "E-mail de l'application"
+      },
+      "placeholder": {
+        "en": "you@example.com",
+        "fr": "vous@exemple.fr"
+      },
+      "required": true
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Password of the app",
+        "fr": "Mot de passe de l'application"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Kept by Gladys in its database, never shown again, sent only to the Whirlpool cloud (prod-api.whrcloud.eu or api.whrcloud.com).",
+        "fr": "Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement au cloud Whirlpool (prod-api.whrcloud.eu ou api.whrcloud.com)."
+      },
+      "required": true
+    },
+    {
+      "key": "poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement (s)"
+      },
+      "description": {
+        "en": "Seconds between two reads (60 to 900): one request per appliance each time.",
+        "fr": "Secondes entre deux lectures (60 à 900) : une requête par appareil à chaque fois."
       },
       "required": false,
-      "default": 300,
+      "default": 60,
       "min": 60,
-      "max": 3600
+      "max": 900
+    },
+    {
+      "key": "enable_aircon",
+      "type": "boolean",
+      "label": {
+        "en": "Show the air conditioners",
+        "fr": "Afficher les climatiseurs"
+      },
+      "description": {
+        "en": "Off by default. On: the air conditioners are shown (state, temperature, humidity) and can be commanded from Gladys (turn on or off with buttons, setpoint 16 to 30 °C, mode, heating included).",
+        "fr": "Désactivé par défaut. Activé : les climatiseurs sont affichés (état, température, humidité) et commandables depuis Gladys (allumer ou éteindre par boutons, consigne de 16 à 30 °C, mode, chauffage compris)."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
+      "description": {
+        "en": "Used for the feature names of the appliances added from now on, and for the cycle names.",
+        "fr": "Sert aux noms des fonctionnalités des appareils ajoutés désormais, et aux noms des cycles."
+      },
+      "required": false,
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
+      "description": {
+        "en": "Signs in if needed and reads the appliances once; also retries after a refused password or a locked account.",
+        "fr": "Se connecte si besoin et lit une fois les appareils ; réessaie aussi après un mot de passe refusé ou un compte verrouillé."
+      },
+      "timeout_seconds": 60
     }
   ],
   "scene_triggers": [
     {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "cycle_finished",
+      "label": {
+        "en": "Washer or dryer cycle finished",
+        "fr": "Cycle de lave-linge ou sèche-linge terminé"
+      },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+        "en": "A washer or a dryer went from a cycle (running, finishing, paused or delayed) to \"complete\", once per cycle. Seen at the next read, so up to the refresh interval late.",
+        "fr": "Un lave-linge ou un sèche-linge est passé d'un cycle (en marche, fin de cycle, en pause ou différé) à « Terminé », une fois par cycle. Vu à la lecture suivante, donc avec jusqu'à l'intervalle de rafraîchissement de retard."
       },
       "fields": [
         {
-          "key": "device",
+          "key": "appliance",
           "type": "select",
           "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
+          "required": false,
+          "label": {
+            "en": "Appliance (empty: any)",
+            "fr": "Appareil (vide : n'importe lequel)"
+          }
         },
         {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
+          "key": "kind",
+          "type": "select",
+          "required": false,
+          "label": {
+            "en": "Type (empty: any)",
+            "fr": "Type (vide : n'importe lequel)"
+          },
           "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
+            {
+              "value": "washer",
+              "label": {
+                "en": "Washer",
+                "fr": "Lave-linge"
+              }
+            },
+            {
+              "value": "dryer",
+              "label": {
+                "en": "Dryer",
+                "fr": "Sèche-linge"
+              }
+            }
           ]
         }
       ],
       "variables": [
         {
-          "key": "target",
+          "key": "appliance_name",
           "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
+          "label": {
+            "en": "Appliance",
+            "fr": "Appareil"
+          }
+        },
+        {
+          "key": "kind_label",
+          "type": "string",
+          "label": {
+            "en": "Type (washer, dryer)",
+            "fr": "Type (lave-linge, sèche-linge)"
+          }
+        },
+        {
+          "key": "cycle",
+          "type": "string",
+          "label": {
+            "en": "Cycle",
+            "fr": "Cycle"
+          }
         }
       ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
-      },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }

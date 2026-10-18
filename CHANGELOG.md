@@ -12,44 +12,34 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- A working example of scene triggers, scene actions and dashboard widgets
-  (Gladys 5.1.0 or later).
-- `CHANGELOG.md`, rolled by the Release workflow.
-- A GitHub Release for every version, with its changelog section as notes: the
-  Gladys Supervision page links each version to the repository's releases.
-- CI runs the tests on Node 22 and 24, and builds the Docker image.
-- Dependabot keeps the npm dependencies and the GitHub Actions up to date.
-- `SECURITY.md` (how to report a vulnerability) and `CLAUDE.md` (project rules
-  for contributors and coding assistants).
-- Manifest tests: `version` matches `package.json`, `docker_image` is tagged
-  with it, descriptions hold 10 to 100 characters, placeholders are
-  multi-language objects.
-- The latitude and longitude fields show an example value as placeholder.
+- Sign-in to the Whirlpool cloud (Europe or United States) with the e-mail
+  and password of the Whirlpool, Maytag (United States) or KitchenAid app,
+  as whirlpool-sixth-sense does it; the token renewed by a timer before it
+  ends, the refresh token and the account id kept in `/data`. A refused
+  refresh token falls back to one password sign-in, never from a command.
+- Washers and dryers, read only: state, cycle, phase, time remaining
+  (minutes), door. No start command.
+- "Washer or dryer cycle finished" scene trigger, once per cycle, with the
+  appliance, its type and the cycle.
+- Ovens, read only: state, temperature (a probe, out of the room average)
+  and door of each cavity. Never heated from Gladys.
+- Air conditioners behind "Show the air conditioners" (off by default):
+  on/off state, Turn on and Turn off push buttons, mode, setpoint
+  (16–30 °C), temperature, humidity. Never a `switch/binary`.
+- Owned and shared appliances; the lists read every 30 minutes, each
+  appliance every 60 s (60 to 900). One appliance failing never hides the
+  others; an offline appliance is shown unreachable.
+- Commands one at a time per appliance, refused before they are sent when
+  they cannot finish within Gladys' 5 s; a command without an answer
+  reported as sent without confirmation and read again within seconds.
+- Resilience: refused credentials and a locked account (423) stop until the
+  configuration changes or the button is clicked; a session refused again
+  after a renewal pauses 1 h, 6 h, then 24 h; 429 pauses every path (1 minute
+  to 6 hours); these stops and pauses kept in `/data`; 5xx and network
+  errors retried after 1 to 15 minutes.
+- Status and Discovery sent again at every reconnection to Gladys; the
+  Discovery list never shrinks. Transport badge per appliance.
+- "Test the connection" button; documentation in English and French;
+  `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 
-### Changed
-
-- Node.js 22 or later is required (Node 20 is end-of-life).
-- Integration SDK 0.15.0. The tests now run against the fake Gladys of the
-  SDK, which refuses the payloads Gladys refuses.
-- The refresh interval is one minute minimum, the fastest Gladys polls a
-  device. The plug's power is only sent when it changes, and every 30
-  minutes otherwise.
-
-### Fixed
-
-- Gladys refused the devices of the Discovery tab: the weather station and
-  the plug declared their poll frequency in seconds instead of one of the
-  values Gladys accepts, and were never polled. They now poll every minute,
-  and the readings follow the refresh interval of the configuration.
-
-- The release commit no longer fails `npm run format:check`: the Release
-  workflow updates the manifest `version` and `docker_image` in place instead
-  of re-printing the whole file with `jq`.
-- The integration can write to `/data`: the image creates the directory owned
-  by the `node` user, a new Docker volume was owned by root.
-- A sub-container running the integration's own image follows it to the new
-  tag at each release, as well as in the manifest of the build summary: it kept
-  the previous tag, which may not exist on the registry. Sub-containers on a
-  third-party image (a broker, a database...) keep theirs.
-
-[Unreleased]: https://github.com/GladysAssistant/integration-template-js/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-whirlpool/commits/main

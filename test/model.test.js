@@ -174,10 +174,14 @@ test('devices: the air conditioner commands, strictly validated', () => {
   const appliance = { said: 'A1', kind: 'aircon', name: 'AC' };
   const plan = planOf(appliance, attrs(aircon()));
   const spec = (key) => plan.specs.find((s) => s.key === key);
-  assert.deepEqual(spec('target').write(21.5), {
-    attributes: { Sys_OpSetTargetTemp: '215' },
-    expect: { target: 21.5 },
-  });
+  assert.deepEqual(
+    spec('target').write(21.4),
+    {
+      attributes: { Sys_OpSetTargetTemp: '210' },
+      expect: { target: 21 },
+    },
+    'rounded to the 1 °C step',
+  );
   for (const bad of [null, '', true, NaN, 15.9, 30.1, 'x']) {
     assert.deepEqual(spec('target').write(bad), { refuse: 'refused' }, String(bad));
   }

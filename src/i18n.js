@@ -147,17 +147,42 @@ export const T = {
   },
 };
 
-/** Command errors, shown by Gladys under the device. */
+/** Command errors, shown by Gladys under the device, in the configured language. */
 export const COMMAND = {
-  unknown: 'This feature cannot be commanded.',
-  refused: 'Value refused: not one this appliance accepts.',
-  pressOnly: 'This is a button: only the value 1 (press) is accepted.',
-  airconOff:
+  unknown: both(
+    'This feature cannot be commanded: nothing was sent.',
+    "Cette fonctionnalité n'est pas commandable : rien n'a été envoyé.",
+  ),
+  refused: both(
+    'Value refused: not one this appliance accepts. Nothing was sent.',
+    "Valeur refusée : l'appareil ne l'accepte pas. Rien n'a été envoyé.",
+  ),
+  pressOnly: both(
+    'This is a button: only the value 1 (press) is accepted. Nothing was sent.',
+    "C'est un bouton : seule la valeur 1 (appui) est acceptée. Rien n'a été envoyé.",
+  ),
+  airconOff: both(
     'Air conditioners are off in the configuration ("Show the air conditioners"): nothing was sent.',
-  blocked: 'Not connected to the Whirlpool cloud: nothing was sent. See the integration status.',
-  paused: 'The integration is paused (too many requests): nothing was sent.',
-  late: 'The Whirlpool cloud is too slow right now: nothing was sent, try again.',
-  offline: 'The appliance is offline for the Whirlpool cloud: nothing was sent.',
-  unconfirmed:
+    "Les climatiseurs sont désactivés dans la configuration (« Afficher les climatiseurs ») : rien n'a été envoyé.",
+  ),
+  blocked: both(
+    'Not connected to the Whirlpool cloud: nothing was sent. See the integration status.',
+    "Non connecté au cloud Whirlpool : rien n'a été envoyé. Voir l'état de l'intégration.",
+  ),
+  paused: both(
+    'The integration is paused (too many requests): nothing was sent.',
+    "L'intégration est en pause (trop de requêtes) : rien n'a été envoyé.",
+  ),
+  late: both(
+    'The Whirlpool cloud is too slow right now: nothing was sent, try again.',
+    "Le cloud Whirlpool est trop lent en ce moment : rien n'a été envoyé, réessayez.",
+  ),
+  offline: both(
+    'The appliance is offline or did not answer the read just before: nothing was sent.',
+    "L'appareil est hors ligne ou n'a pas répondu à la relecture juste avant : rien n'a été envoyé.",
+  ),
+  unconfirmed: both(
     'Sent, without confirmation from the Whirlpool cloud: check the state in a few seconds.',
+    "Envoyé, sans confirmation du cloud Whirlpool : vérifiez l'état dans quelques secondes.",
+  ),
 };

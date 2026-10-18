@@ -14,7 +14,7 @@ import { WhirlpoolClient } from './client.js';
 import { normalizeConfig } from './config.js';
 import { LIMITS, SCENE_TRIGGERS, TIMINGS } from './constants.js';
 import { buildDevice, deviceIds, deviceStates, planOf } from './devices.js';
-import { WhirlpoolError, errorReason } from './http.js';
+import { WhirlpoolError, errorReason, isAccountError } from './http.js';
 import { COMMAND, CYCLE_LABELS, KIND_LABELS, T, age, join, word } from './i18n.js';
 import { ACTIVE_STATES, kindOf, readingOf } from './model.js';
 import { StatePublisher } from './publisher.js';
@@ -32,17 +32,6 @@ const STOPS = {
 };
 /** The stops kept in /data. */
 const PERSISTED = new Set(['refused', 'locked', 'login_rejected', 'session_refused']);
-/** Errors of one appliance's read that are the account's, not the appliance's: the cycle stops. */
-const ACCOUNT_ERRORS = new Set([
-  'refused',
-  'no_credentials',
-  'no_client',
-  'locked',
-  'login_rejected',
-  'session_refused',
-  'expired',
-  'rate_limited',
-]);
 /** The fields of a Gladys feature that a publication carries. */
 const FEATURE_FIELDS = [
   'name',
@@ -60,8 +49,6 @@ const FEATURE_FIELDS = [
 ];
 /** The feature keys a command's `expect` names. */
 const EXPECTED_FEATURES = { power: 'power', mode: 'mode', target: 'target' };
-
-const commandError = (message) => new Error(message);
 
 export class WhirlpoolApp {
   constructor({
@@ -91,6 +78,8 @@ export class WhirlpoolApp {
     this.started = false;
     this.lastStatus = undefined;
     this.lastTestAt = -Infinity;
+    /** Set when the account changed: the next Discovery may be empty. */
+    this.clearDiscovery = false;
     this.reset();
   }
 
@@ -239,6 +228,12 @@ export class WhirlpoolApp {
     const next = normalizeConfig(raw);
     const previous = this.config;
     if (['email', 'password', 'brand', 'region'].some((key) => next[key] !== previous[key])) {
+      if (next.account !== previous.account) {
+        // Another account: the devices of the previous one are not offered any more.
+        this.known = new Map();
+        this.published = undefined;
+        this.clearDiscovery = true;
+      }
       return this.start(raw);
     }
     this.config = next;
@@ -329,7 +324,8 @@ export class WhirlpoolApp {
     if (delay === undefined) {
       const lifetime = Math.max(0, tokens.expiresAt - tokens.issuedAt);
       const at = tokens.expiresAt - Math.min(TIMINGS.refreshAhead, lifetime / 2);
-      delay = Math.max(TIMINGS.refreshMinimum, at - this.now());
+      // Never sooner than a minute after issue, nor later than half the lifetime.
+      delay = Math.max(Math.min(TIMINGS.refreshMinimum, lifetime / 2), at - this.now());
     }
     const generation = this.generation;
     this.refreshTimer = this.timers.setTimeout(() => {
@@ -514,7 +510,9 @@ export class WhirlpoolApp {
         this.applyReading(appliance, attrs);
         read += 1;
       } catch (err) {
-        if (ACCOUNT_ERRORS.has(err.kind) || !(err instanceof WhirlpoolError)) {
+        // The account's errors (a token endpoint error included) stop the
+        // cycle: never one sign-in or renewal per appliance.
+        if (isAccountError(err)) {
           throw err;
         }
         failed = failed ?? err;
@@ -701,12 +699,14 @@ export class WhirlpoolApp {
     }
     const list = [...this.known.values()];
     const json = JSON.stringify(list);
-    if (list.length === 0 || json === this.published) {
+    // An empty list is sent only to clear the devices of a previous account.
+    if ((list.length === 0 && !this.clearDiscovery) || json === this.published) {
       return;
     }
     try {
       await this.gladys.publishDiscoveredDevices(list);
       this.published = json;
+      this.clearDiscovery = false;
     } catch (err) {
       this.logger.warn(`Publishing the discovered devices failed: ${err.message}`);
     }
@@ -732,6 +732,10 @@ export class WhirlpoolApp {
       }
       const appliance = this.appliances.get(said);
       if (!appliance || !entry.plan) {
+        continue;
+      }
+      if (appliance.kind === 'aircon' && !this.config.enableAircon) {
+        // Option off: the air conditioners are not read, their states not sent again.
         continue;
       }
       for (const { id, value } of deviceStates(
@@ -823,25 +827,36 @@ export class WhirlpoolApp {
   async setValue(device, feature, value) {
     const featureId = feature?.external_id;
     if (!this.config.enableAircon) {
-      throw commandError(COMMAND.airconOff);
+      throw this.commandError(COMMAND.airconOff);
     }
     const writer = this.writers.get(featureId);
     if (!writer) {
-      throw commandError(COMMAND.unknown);
+      throw this.commandError(COMMAND.unknown);
     }
     const { said, spec } = writer;
     const result = spec.write(value);
     if (result.refuse) {
-      throw commandError(COMMAND[result.refuse]);
+      throw this.commandError(COMMAND[result.refuse]);
     }
     if (this.blocked || !this.client.hasCredentials) {
-      throw commandError(COMMAND.blocked);
+      throw this.commandError(COMMAND.blocked);
     }
     if (this.pauseKind === 'rate' && this.now() < this.pausedUntil) {
-      throw commandError(COMMAND.paused);
+      throw this.commandError(COMMAND.paused);
     }
     const deadline = this.now() + TIMINGS.commandBudget;
-    return this.serial(said, () => this.command(said, result, deadline));
+    const generation = this.generation;
+    // Checked again when the command's turn comes and right before it leaves.
+    const allowed = () =>
+      this.config.enableAircon &&
+      this.generation === generation &&
+      this.writers.get(featureId)?.said === said;
+    return this.serial(said, () => this.command(said, result, deadline, allowed));
+  }
+
+  /** A command error in the configured language. */
+  commandError(message) {
+    return new Error(typeof message === 'string' ? message : word(message, this.config.language));
   }
 
   /** One command at a time per appliance; each waits for the previous one. */
@@ -859,19 +874,34 @@ export class WhirlpoolApp {
     return run;
   }
 
-  async command(said, { attributes, expect }, deadline) {
-    if (deadline - this.now() < TIMINGS.commandMinimum) {
-      throw commandError(COMMAND.late);
+  /**
+   * Never decided on a state in memory: the appliance is read again within
+   * the budget, and the command leaves only if that read says it is online.
+   */
+  async command(said, { attributes, expect }, deadline, allowed = () => true) {
+    if (!allowed()) {
+      throw this.commandError(COMMAND.airconOff);
     }
-    const entry = this.readings.get(said);
-    if (!entry) {
-      throw commandError(COMMAND.unknown);
+    if (deadline - this.now() < 2 * TIMINGS.commandMinimum) {
+      throw this.commandError(COMMAND.late);
     }
-    if (entry.reading?.online === false) {
-      throw commandError(COMMAND.offline);
+    const appliance = this.appliances.get(said);
+    if (!appliance || !this.readings.has(said)) {
+      throw this.commandError(COMMAND.unknown);
     }
     try {
-      await this.client.command(said, attributes, { deadline });
+      // The read keeps enough of the budget for the command itself.
+      const attrs = await this.client.data(said, { deadline: deadline - TIMINGS.commandMinimum });
+      this.applyReading(appliance, attrs);
+      await this.flush();
+    } catch (err) {
+      throw await this.commandFailure(err);
+    }
+    if (this.readings.get(said)?.reading?.online !== true) {
+      throw this.commandError(COMMAND.offline);
+    }
+    try {
+      await this.client.command(said, attributes, { deadline, guard: allowed });
     } catch (err) {
       throw await this.commandFailure(err);
     }
@@ -915,28 +945,30 @@ export class WhirlpoolApp {
       // The command left without an answer: it may have been done. Read soon.
       this.logger.warn(`Whirlpool command sent without confirmation: ${errorReason(err)}`);
       this.scheduleNext(TIMINGS.confirmRead);
-      return commandError(COMMAND.unconfirmed);
+      return this.commandError(COMMAND.unconfirmed);
     }
     this.logger.warn(`Whirlpool command not done: ${errorReason(err)}`);
     switch (err.kind) {
       case 'rate_limited':
         await this.pause(err);
         await this.setStatus(this.connectedOnce, T.rateLimited(age(this.pausedUntil - this.now())));
-        return commandError(COMMAND.paused);
+        return this.commandError(COMMAND.paused);
       case 'invalid_command':
-        return commandError(COMMAND.refused);
+        return this.commandError(COMMAND.refused);
+      case 'cancelled':
+        return this.commandError(COMMAND.airconOff);
       case 'late':
       case 'timeout':
-        return commandError(COMMAND.late);
+        return this.commandError(COMMAND.late);
       case 'unauthorized':
       case 'session_refused':
       case 'token_refused':
       case 'expired':
         // The next cycle renews the session (never a password from a command).
         this.scheduleNext(0);
-        return commandError(COMMAND.blocked);
+        return this.commandError(COMMAND.blocked);
       default:
-        return commandError(`Whirlpool: ${errorReason(err)}`);
+        return this.commandError(`Whirlpool: ${errorReason(err)}`);
     }
   }
 

@@ -47,9 +47,19 @@ assistant or a scene cannot do anything to them.
 With the _Show the air conditioners_ option, the air conditioners are shown
 and can be commanded: **Turn on** and **Turn off** buttons (never a switch),
 **Mode** (6th Sense/auto, cooling, **heating**, fan), **Setpoint** from 16
-to 30 °C. A value outside these bounds is refused and nothing is sent.
-Option off, they are neither read nor commanded, and an air conditioner
-already added refuses the commands.
+to 30 °C, rounded to the degree. A value outside these bounds is refused and
+nothing is sent. Before each command the appliance is read again: offline or
+without an answer, nothing is sent.
+
+- **On and off**: only the Gladys buttons work. A "turn on" or "turn off"
+  from a voice assistant, HomeKit or the MCP targets the On/Off state, which
+  is read only: it is refused.
+- **Mode and setpoint**: with the option on, HomeKit, a voice assistant, the
+  MCP and scenes can change them, **heating included**. Turn the option on
+  only if that suits you.
+- **Option off**: the air conditioners are no longer read, their states no
+  longer sent, and every command is refused. An air conditioner already
+  added stays in the device list, with the "unreachable" badge.
 
 ## "Cycle finished" scene trigger
 
@@ -57,8 +67,15 @@ In a scene, choose the **Washer or dryer cycle finished** trigger, with an
 appliance (or any) and a type (or any). It fires once per cycle, when the
 appliance goes from a cycle (running, finishing, paused or delayed) to
 "Complete". Variables for the actions: appliance name, type, cycle. It is
-seen at the next read: up to the refresh interval late (60 s by default). A
-cycle that finishes while the integration restarts is not reported.
+seen at the next read: up to the refresh interval late (60 s by default). It
+is not reported:
+
+- when the appliance goes straight from "Running" to "Standby" without
+  "Complete";
+- when the cycle finishes while the integration restarts.
+
+After an outage (network, cloud unreachable, pause), the event may come late:
+at the first read after the return, if the appliance is still "Complete".
 
 ## Setup
 
@@ -129,5 +146,6 @@ container only): the refresh token (the access token stays in memory) and
 the account id, the account they belong to as a fingerprint of the brand,
 region and e-mail, the end of a 429 pause, and a stop (refused credentials,
 locked account, unexpected answer, refused session and its next try) tied to
-a salted fingerprint of the account and password. Neither the e-mail nor
+a short fingerprint (HMAC, 4 characters) of the account and password,
+used only to see that they changed. Neither the e-mail nor
 the password. Nothing is sent anywhere but the Whirlpool cloud.

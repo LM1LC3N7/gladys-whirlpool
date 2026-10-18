@@ -9,17 +9,36 @@
 // -----------------------------------------------------------------------------
 
 import { BRAND_HEADER, HOSTS, LIMITS, PATHS, TIMINGS, USER_AGENT } from './constants.js';
-import { WhirlpoolError, httpRequest, parseJson, transientError, tryJson } from './http.js';
+import {
+  WhirlpoolError,
+  httpRequest,
+  isAccountError,
+  parseJson,
+  transientError,
+  tryJson,
+} from './http.js';
 
 /** A SAID or an account id as the integration accepts them. */
 export const ID = /^[A-Za-z0-9_.-]{1,64}$/;
 
+/** The errors of the shared list that are ignored (sharing is not offered everywhere). */
+const SHARED_IGNORED = new Set(['http', 'bad_response', 'size', 'unavailable', 'network']);
+
 const text = (value, max = 256) =>
   typeof value === 'string' || typeof value === 'number' ? String(value).slice(0, max) : '';
 
+/** Marks an error of the token endpoint: the account's, it stops the cycle. */
+const authError = (err) => {
+  if (err instanceof WhirlpoolError) {
+    err.auth = true;
+  }
+  return err;
+};
+
 /** One appliance of a list answer, or undefined when it has no usable SAID. */
 export function applianceOf(raw, shared = false) {
-  const said = text(raw?.SAID, 64);
+  // The whole value is checked: a longer SAID is not cut into another one.
+  const said = text(raw?.SAID, 1000);
   if (!ID.test(said)) {
     return undefined;
   }
@@ -95,7 +114,13 @@ export class WhirlpoolClient {
 
   /** The token is usable for a request now (not ending within the margin). */
   get tokenValid() {
-    return Boolean(this.tokens?.access) && this.now() < this.tokens.expiresAt - TIMINGS.tokenMargin;
+    if (!this.tokens?.access) {
+      return false;
+    }
+    // A short-lived token keeps a quarter of its life as the margin, not 30 s.
+    const lifetime = Math.max(0, this.tokens.expiresAt - this.tokens.issuedAt);
+    const margin = Math.min(TIMINGS.tokenMargin, lifetime / 4);
+    return this.now() < this.tokens.expiresAt - margin;
   }
 
   beginCycle() {
@@ -257,7 +282,7 @@ export class WhirlpoolClient {
    */
   async ensureToken({ allowLogin = false, timeout, deadline, force = false } = {}) {
     if (this.authenticating) {
-      await this.authenticating.catch(() => {});
+      await this.waitAuthenticating(deadline);
     }
     if (!force && this.tokenValid) {
       return false;
@@ -268,26 +293,64 @@ export class WhirlpoolClient {
         return true;
       } catch (err) {
         if (err.kind !== 'token_refused') {
-          throw err;
+          // `late` is a command's own budget, not the account's.
+          throw err.kind === 'late' ? err : authError(err);
         }
       }
     }
     if (!allowLogin || deadline !== undefined) {
-      throw new WhirlpoolError('expired', 'the Whirlpool session expired');
+      throw authError(new WhirlpoolError('expired', 'the Whirlpool session expired'));
     }
     if (this.relogged) {
-      throw new WhirlpoolError('session_refused', 'the session was refused after a new sign-in');
+      throw authError(
+        new WhirlpoolError('session_refused', 'the session was refused after a new sign-in'),
+      );
     }
     this.relogged = true;
-    await this.signIn({ timeout });
+    try {
+      await this.signIn({ timeout });
+    } catch (err) {
+      throw authError(err);
+    }
     return true;
+  }
+
+  /**
+   * Waits for the sign-in step in progress; a command waits only within its
+   * budget, then is `late` (never sent).
+   */
+  async waitAuthenticating(deadline) {
+    const pending = this.authenticating.catch(() => {});
+    if (deadline === undefined) {
+      await pending;
+      return;
+    }
+    let timer;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(
+        resolve,
+        Math.max(0, deadline - TIMINGS.commandMinimum - this.now()),
+        'late',
+      );
+    });
+    try {
+      if ((await Promise.race([pending, late])) === 'late') {
+        throw new WhirlpoolError('late', 'a sign-in is in progress');
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // --- API -------------------------------------------------------------------
 
-  async apiSend(method, path, { payload, headers = {}, maxBytes, timeout, deadline } = {}) {
+  async apiSend(method, path, { payload, headers = {}, maxBytes, timeout, deadline, guard } = {}) {
     const body = payload === undefined ? undefined : JSON.stringify(payload);
     const wait = this.timeLeft(deadline, timeout);
+    // A command checks its conditions once more, right before it leaves.
+    if (guard && !guard()) {
+      throw new WhirlpoolError('cancelled', 'the command is no longer allowed');
+    }
     let answer;
     try {
       answer = await this.transport(`${this.base}${path}`, {
@@ -313,6 +376,11 @@ export class WhirlpoolClient {
     }
     const error = transientError(answer, this.now());
     if (error) {
+      // A command answered by a gateway error (502, 504...) may have been
+      // done; a 503 says the service did not take it.
+      if (method === 'POST' && answer.status >= 500 && answer.status !== 503) {
+        error.sent = true;
+      }
       throw error;
     }
     if (answer.status === 403) {
@@ -341,7 +409,20 @@ export class WhirlpoolClient {
    * renewal, it is `session_refused`. A command (`deadline`) is never
    * retried: it may have been done.
    */
-  async call(method, path, { allowLogin = false, timeout, deadline, ...options } = {}) {
+  async call(
+    method,
+    path,
+    { allowLogin = false, timeout, deadline, device = false, ...options } = {},
+  ) {
+    /**
+     * A refusal kept after a renewal: the session's (`session_refused`),
+     * except a 403 on one appliance's path, which is that appliance's
+     * (`forbidden`): a 401, or a refusal of an account path, is the session.
+     */
+    const refusal = (err, message) =>
+      device && err.status === 403
+        ? new WhirlpoolError('forbidden', 'Whirlpool refused this appliance', { status: 403 })
+        : new WhirlpoolError('session_refused', message, { status: err.status });
     const fresh = await this.ensureToken({ allowLogin, timeout, deadline });
     try {
       return await this.apiSend(method, path, { ...options, timeout, deadline });
@@ -350,9 +431,7 @@ export class WhirlpoolClient {
         throw err;
       }
       if (fresh || deadline !== undefined) {
-        throw new WhirlpoolError('session_refused', 'the session was refused', {
-          status: err.status,
-        });
+        throw refusal(err, 'the session was refused');
       }
     }
     // A dead refresh token falls back to one password sign-in (a cycle only).
@@ -361,13 +440,7 @@ export class WhirlpoolClient {
       return await this.apiSend(method, path, { ...options, timeout });
     } catch (err) {
       if (err.kind === 'unauthorized') {
-        throw new WhirlpoolError(
-          'session_refused',
-          'the session was refused right after a renewal',
-          {
-            status: err.status,
-          },
-        );
+        throw refusal(err, 'the session was refused right after a renewal');
       }
       throw err;
     }
@@ -426,7 +499,8 @@ export class WhirlpoolClient {
         maxBytes: LIMITS.listBytes,
       });
     } catch (err) {
-      if (['rate_limited', 'session_refused', 'expired'].includes(err.kind)) {
+      // Only a failure of the endpoint itself is ignored; the account's never is.
+      if (isAccountError(err) || !SHARED_IGNORED.has(err.kind)) {
         throw err;
       }
       shared = undefined;
@@ -442,7 +516,7 @@ export class WhirlpoolClient {
 
   /** The attributes of one appliance: name -> string value (httpapi/appliance.py fetch_data). */
   async data(said, options = {}) {
-    const json = await this.callJson('GET', PATHS.data(said), options);
+    const json = await this.callJson('GET', PATHS.data(said), { ...options, device: true });
     const attributes = json?.attributes;
     if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) {
       throw new WhirlpoolError('bad_response', 'Whirlpool sent no attributes');
@@ -461,6 +535,7 @@ export class WhirlpoolClient {
   async command(said, attributes, options = {}) {
     await this.call('POST', PATHS.command, {
       ...options,
+      device: true,
       payload: { body: attributes, header: { said, command: 'setAttributes' } },
     });
   }

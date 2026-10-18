@@ -218,7 +218,8 @@ function airconSpecs(humidity) {
         if (target === undefined || target < AC_SETPOINT.min || target > AC_SETPOINT.max) {
           return { refuse: 'refused' };
         }
-        const tenths = Math.round(target * 10);
+        // Rounded to the declared step of 1 °C (the Home Assistant integration's), in tenths.
+        const tenths = Math.round(target / AC_SETPOINT.step) * AC_SETPOINT.step * 10;
         return {
           attributes: { [AC_ATTRS.targetTemp]: String(tenths) },
           expect: { target: tenths / 10 },

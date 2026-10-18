@@ -105,9 +105,37 @@ test('the /data state is repaired and its pauses capped', () => {
   assert.equal(m.block, null);
   const ok = normalizeMemory({
     session: { account: '0123456789abcdef', refresh: 'r', accountId: '12' },
-    block: { kind: 'locked', fingerprint: '0123456789abcdef', retries: 99 },
+    block: { kind: 'locked', fingerprint: '0a1b', retries: 99 },
   });
   assert.deepEqual(ok.session, { account: '0123456789abcdef', refresh: 'r', accountId: '12' });
   assert.equal(ok.block.kind, 'locked');
   assert.equal(ok.block.retries, 10);
+});
+
+test('M2: a command waits for a sign-in in progress only within its budget', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 10_000 });
+  let calls = 0;
+  const client = new WhirlpoolClient({
+    transport: async () => (calls += 1),
+    now: () => Date.now(),
+  });
+  client.configure({
+    email: 'e',
+    password: 'p',
+    brand: 'whirlpool',
+    region: 'eu',
+    client: CLIENTS.eu.whirlpool,
+    tokens: { access: 'a', refresh: 'r', expiresAt: 10_000_000, issuedAt: 0 },
+    accountId: '1',
+  });
+  client.authenticating = new Promise(() => {});
+  const pending = client.command('S1', { x: '1' }, { deadline: Date.now() + 4000 });
+  t.mock.timers.tick(2600);
+  await assert.rejects(pending, { kind: 'late' });
+  assert.equal(calls, 0, 'nothing sent');
+});
+
+test('M7: a SAID longer than 64 characters is dropped, never cut', () => {
+  assert.equal(applianceOf({ SAID: 'A'.repeat(65) }), undefined);
+  assert.equal(applianceOf({ SAID: 'A'.repeat(64) }).said.length, 64);
 });

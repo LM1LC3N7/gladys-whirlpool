@@ -23,7 +23,10 @@ import { LIMITS, TIMINGS } from './constants.js';
  * - `unavailable`: 5xx, or a 403 that is not an answer of the API (a CDN);
  * - `network`, `timeout`: no answer; `late`: not enough time left (a command);
  * - `bad_response`, `size`: not the expected answer; `http`: any other status;
- * - `invalid_command`: the API refused the values of a command (400).
+ * - `invalid_command`: the API refused the values of a command (400);
+ * - `forbidden`: a 403 of one appliance's path, kept after a renewal: an
+ *   error of that appliance, not of the account;
+ * - `cancelled`: a command whose conditions changed before it left (never sent).
  * `sent`: a command that may have reached the appliance (no answer).
  */
 export class WhirlpoolError extends Error {
@@ -34,6 +37,8 @@ export class WhirlpoolError extends Error {
     this.status = status;
     this.retryAfter = retryAfter;
     this.sent = false;
+    /** An error of the token endpoint (sign-in or renewal): the account's. */
+    this.auth = false;
   }
 }
 
@@ -156,6 +161,25 @@ export function parseJson(body) {
   }
   return json;
 }
+
+/**
+ * Errors of the account, not of one appliance or one endpoint: they stop the
+ * cycle, and are never swallowed (an error of the token endpoint, `auth`,
+ * counts as one too: see isAccountError).
+ */
+export const ACCOUNT_ERRORS = new Set([
+  'refused',
+  'no_credentials',
+  'no_client',
+  'locked',
+  'login_rejected',
+  'session_refused',
+  'expired',
+  'rate_limited',
+]);
+
+export const isAccountError = (err) =>
+  !(err instanceof WhirlpoolError) || err.auth === true || ACCOUNT_ERRORS.has(err.kind);
 
 /** The transient errors of every call: 429, 5xx. Undefined otherwise. */
 export function transientError({ status, headers = {} }, now) {

@@ -432,7 +432,7 @@ test('air conditioners: absent and refused while the option is off', async (t) =
   assert.ok(!gladys.fake.discoveredDevices.some((d) => d.external_id === device(SAIDS.aircon)));
   await assert.rejects(
     app.setValue({}, { external_id: feature(SAIDS.aircon, 'power-on') }, 1),
-    /off in the configuration/,
+    /désactivés dans la configuration/,
   );
 });
 
@@ -509,7 +509,7 @@ test('a command without an answer is reported sent without confirmation, then re
   const reads = server.reads(SAIDS.aircon).length;
   const ack = await set(SAIDS.aircon, 'power-off', 1);
   assert.equal(ack.success, false);
-  assert.match(ack.error, /without confirmation/);
+  assert.match(ack.error, /sans confirmation/, 'in the configured language (fr)');
   await advance(6 * SECOND, SECOND);
   assert.ok(server.reads(SAIDS.aircon).length > reads, 'read again within seconds');
 });
@@ -524,7 +524,7 @@ test('a command never signs in with the password; the next cycle does', async (t
   const sent = server.commands().length;
   const ack = await set(SAIDS.aircon, 'target', 21);
   assert.equal(ack.success, false);
-  assert.match(ack.error, /Not connected/);
+  assert.match(ack.error, /Non connecté/);
   assert.equal(server.commands().length, sent, 'nothing sent');
   assert.equal(server.tokenCalls('password').length, 1, 'never a password from a command');
   await advance(2 * SECOND, SECOND);
@@ -544,4 +544,180 @@ test('the US region and the Maytag app', async (t) => {
     'Maytag',
   );
   assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+// --- Review fixes -------------------------------------------------------------
+
+const SHARED = '/api/v1/share-accounts/appliances';
+/** The next cycle reads the lists again (as after a scan of Discovery). */
+const relist = async (gladys, advance) => {
+  await gladys.fake.scanRequest();
+  await advance(60 * SECOND, 10 * SECOND);
+};
+
+test('J: the shared list never swallows a refused password; no new try by itself', async (t) => {
+  const store = memoryStore();
+  const { gladys, server, advance } = await setup(t, { store });
+  server.before = (r) => {
+    if (r.path === SHARED) {
+      server.before = undefined;
+      server.revokeAccess();
+      server.revokeRefresh();
+      server.password = 'changed-in-the-app';
+    }
+  };
+  await relist(gladys, advance);
+  assert.match(message(gladys).en, /e-mail or the password was refused/);
+  assert.equal(store.data.block.kind, 'refused');
+  const count = server.requests.length;
+  await advance(3 * HOUR, MINUTE);
+  assert.equal(server.requests.length, count, 'never tried again by itself');
+});
+
+test('K: the shared list never swallows a locked account; then no POST at all', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  server.before = (r) => {
+    if (r.path === SHARED) {
+      server.before = undefined;
+      server.revokeAccess();
+      server.queue.push({ match: (q) => q.path === '/oauth/token', status: 423, body: '' });
+    }
+  };
+  await relist(gladys, advance);
+  assert.match(message(gladys).en, /locked/);
+  const posts = () => server.requests.filter((r) => r.method === 'POST').length;
+  const before = posts();
+  await advance(3 * HOUR, MINUTE);
+  assert.equal(posts(), before, '0 POST after the lock');
+});
+
+test('E: a token living 60 s is renewed in time, without a password loop', async (t) => {
+  const server = fakeWhirlpool({ lifetime: 60 });
+  const { gladys } = await setup(t, { server, create: false });
+  const reads = server.reads(SAIDS.washer).length;
+  t.mock.timers.tick(0);
+  for (let i = 0; i < 60; i += 1) {
+    t.mock.timers.tick(5 * SECOND);
+    await settle();
+  }
+  assert.ok(server.tokenCalls('refresh_token').length >= 4, 'renewed before each end');
+  assert.equal(server.tokenCalls('password').length, 1);
+  assert.ok(server.reads(SAIDS.washer).length > reads);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+test('6: a token endpoint error stops the cycle: one POST /oauth/token, not one per appliance', async (t) => {
+  const { gladys, app, server, advance } = await setup(t);
+  app.client.tokens.expiresAt = Date.now();
+  for (let i = 0; i < 10; i += 1) {
+    server.queue.push({ match: (r) => r.path === '/oauth/token', status: 503, body: '' });
+  }
+  const before = server.tokenCalls().length;
+  await advance(60 * SECOND, 10 * SECOND);
+  assert.equal(server.tokenCalls().length - before, 1);
+  assert.match(message(gladys).en, /cannot be reached/);
+});
+
+test('3: one appliance answering 403 is that appliance’s error, the account goes on', async (t) => {
+  const { gladys, server, store, advance } = await setup(t);
+  server.queue.push(
+    { match: (r) => r.path === `/api/v1/appliance/${SAIDS.oven}`, status: 403, body: { e: 1 } },
+    { match: (r) => r.path === `/api/v1/appliance/${SAIDS.oven}`, status: 403, body: { e: 1 } },
+  );
+  server.set(SAIDS.washer, 'Cavity_OpStatusDoorOpen', '0');
+  await advance(60 * SECOND, 10 * SECOND);
+  assert.equal(last(gladys, SAIDS.washer, 'door'), 1, 'the others are read');
+  assert.ok(server.reads(SAIDS.sharedOven).length >= 2);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  assert.equal(store.data.block, null, 'no stop of the account');
+  const badges = gladys.fake.transports.filter((x) => x.device_external_id === device(SAIDS.oven));
+  assert.equal(badges.at(-1).transport, DEVICE_TRANSPORTS.UNREACHABLE);
+});
+
+test('2: the option turned off while a command waits in the queue: nothing leaves', async (t) => {
+  const config = { ...CONFIG, enable_aircon: true };
+  const { gladys, server, created } = await setup(t, { config });
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  server.before = async (r) => {
+    if (r.path === '/api/v1/appliance/command') {
+      server.before = undefined;
+      await gate;
+    }
+  };
+  const d = created(SAIDS.aircon);
+  const f = (key) => d.features.find((x) => x.external_id === feature(SAIDS.aircon, key));
+  const first = gladys.fake.setValue(d, f('power-on'), 1);
+  await settle();
+  const second = gladys.fake.setValue(d, f('target'), 20);
+  await settle();
+  await gladys.fake.configUpdated({ ...config, enable_aircon: false });
+  release();
+  await settle();
+  assert.equal((await first).success, true);
+  const ack = await second;
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /désactivés/);
+  assert.equal(server.commands().length, 1, 'the queued command never left');
+});
+
+test('4: the appliance is read again before a command, and refused when offline', async (t) => {
+  const { server, set } = await setup(t, { config: { ...CONFIG, enable_aircon: true } });
+  const reads = server.reads(SAIDS.aircon).length;
+  let ack = await set(SAIDS.aircon, 'power-on', 1);
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(server.reads(SAIDS.aircon).length, reads + 1, 'a fresh read first');
+  const at = server.requests.findIndex((r) => r.path === '/api/v1/appliance/command');
+  assert.equal(server.requests[at - 1].path, `/api/v1/appliance/${SAIDS.aircon}`);
+  server.set(SAIDS.aircon, 'Online', '0');
+  const sent = server.commands().length;
+  ack = await set(SAIDS.aircon, 'power-off', 1);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /rien n'a été envoyé/);
+  assert.equal(server.commands().length, sent, 'nothing sent');
+  delete server.data[SAIDS.aircon].Online;
+  ack = await set(SAIDS.aircon, 'power-off', 1);
+  assert.equal(ack.success, false, 'an unknown online state is refused too');
+  assert.equal(server.commands().length, sent);
+});
+
+test('5: a 504 to a command is sent without confirmation, then read again', async (t) => {
+  const { server, set, advance } = await setup(t, { config: { ...CONFIG, enable_aircon: true } });
+  server.queue.push({ match: (r) => r.path === '/api/v1/appliance/command', status: 504 });
+  let ack = await set(SAIDS.aircon, 'power-on', 1);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /sans confirmation/);
+  const reads = server.reads(SAIDS.aircon).length;
+  await advance(6 * SECOND, SECOND);
+  assert.ok(server.reads(SAIDS.aircon).length > reads, 'read again within seconds');
+  // A 503 says the service did not take it.
+  server.queue.push({ match: (r) => r.path === '/api/v1/appliance/command', status: 503 });
+  ack = await set(SAIDS.aircon, 'power-on', 1);
+  assert.equal(ack.success, false);
+  assert.doesNotMatch(ack.error, /sans confirmation/);
+});
+
+test('M4, M5: another account forgets the devices; option off sends no AC state', async (t) => {
+  const config = { ...CONFIG, enable_aircon: true };
+  const { gladys, server, advance } = await setup(t, { config });
+  await gladys.fake.configUpdated({ ...config, enable_aircon: false });
+  const states = () =>
+    gladys.fake.states.filter((s) => s.device_feature_external_id.startsWith(device(SAIDS.aircon)))
+      .length;
+  const before = states();
+  server.set(SAIDS.aircon, 'Sys_OpStatusDisplayTemp', '250');
+  await advance(2 * MINUTE, 10 * SECOND);
+  assert.equal(states(), before, 'no air conditioner state while the option is off');
+  const other = { ...CONFIG, email: 'other@example.com' };
+  server.email = other.email;
+  server.owned = { KEY1: { legacyAppliance: [], tsAppliance: [] } };
+  server.shared = { sharedAppliances: [] };
+  await gladys.fake.configUpdated(other);
+  await settle();
+  await gladys.fake.scanRequest();
+  await settle();
+  assert.ok(
+    !gladys.fake.discoveredDevices.some((d) => d.external_id === device(SAIDS.washer)),
+    'the previous account’s devices are not offered',
+  );
 });

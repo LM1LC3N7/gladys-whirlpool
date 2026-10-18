@@ -42,4 +42,23 @@ the notes of the version's GitHub Release.
 - "Test the connection" button; documentation in English and French;
   `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 
+### Fixed
+
+- The shared appliance list no longer hides a refused password or a locked
+  account: the integration stops instead of trying again.
+- An error of the token endpoint stops the cycle: no renewal per appliance.
+- One appliance refused (HTTP 403) no longer stops the whole account.
+- Air conditioner commands: the appliance is read again just before, and
+  nothing is sent when it is offline; turning the option off cancels a
+  queued command; a command answered by a gateway error (502, 504) is
+  reported "sent, without confirmation"; the setpoint is rounded to 1 °C;
+  the errors follow the configured language.
+- A very short-lived token is renewed in time; a command never waits for a
+  sign-in past its budget.
+- Another account no longer offers the devices of the previous one; the
+  air conditioner states are not sent while the option is off.
+- The stops in `/data` are tied to a 4-digit keyed fingerprint (HMAC) of
+  the credentials. Docs: the limits of the "Cycle finished" trigger and of
+  the air conditioner commands (voice assistants, HomeKit, MCP, scenes).
+
 [Unreleased]: https://github.com/LM1LC3N7/gladys-whirlpool/commits/main

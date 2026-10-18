@@ -8,13 +8,13 @@
 //     one of them changes;
 //   - the end of a 429 pause (kept across restarts and account changes);
 //   - a stop (refused credentials, locked account, unexpected sign-in
-//     answer, refused session and its spaced retries), tied to a salted
-//     fingerprint of the account and password, so a restart does not retry
+//     answer, refused session and its spaced retries), tied to a short
+//     keyed fingerprint (HMAC) of the account and password, so a restart does not retry
 //     what Whirlpool refused, and a new password does.
 // The file is readable by the container user only (0600).
 // -----------------------------------------------------------------------------
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { open, readFile, rename } from 'node:fs/promises';
 import { TIMINGS } from './constants.js';
 
@@ -53,9 +53,14 @@ export function fileStore(path = STATE_FILE) {
 
 export const newSalt = () => randomBytes(16).toString('hex');
 
-/** The salted fingerprint of the credentials a stop belongs to (16 hex digits). */
+/**
+ * The fingerprint of the credentials a stop belongs to: an HMAC keyed by the
+ * random salt, cut to 4 hex digits. It only tells that the password changed
+ * (a 1 in 65 536 collision only means a click on the test button), and says
+ * next to nothing about the password if /data leaks.
+ */
 export const fingerprint = (salt, account, password) =>
-  createHash('sha256').update(`${salt}\n${account}\n${password}`).digest('hex').slice(0, 16);
+  createHmac('sha256', salt).update(`${account}\n${password}`).digest('hex').slice(0, 4);
 
 const time = (value) => (Number.isFinite(value) ? value : undefined);
 const str = (value, max = 8192) =>
@@ -83,7 +88,7 @@ export function normalizeMemory(raw, now = Date.now()) {
         : null,
     rateLimitedUntil: capped(raw?.rateLimitedUntil, TIMINGS.rateLimitMax),
     block:
-      BLOCKS.has(block?.kind) && /^[0-9a-f]{16}$/.test(block?.fingerprint ?? '')
+      BLOCKS.has(block?.kind) && /^[0-9a-f]{4}$/.test(block?.fingerprint ?? '')
         ? {
             kind: block.kind,
             fingerprint: block.fingerprint,

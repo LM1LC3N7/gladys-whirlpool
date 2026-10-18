@@ -51,9 +51,19 @@ scène ne peut rien leur faire.
 Avec l'option _Afficher les climatiseurs_, les climatiseurs sont affichés et
 commandables : boutons **Allumer** et **Éteindre** (jamais un interrupteur),
 **Mode** (6e Sens/auto, froid, **chaud**, ventilation), **Consigne** de 16 à
-30 °C. Une valeur hors de ces bornes est refusée sans rien envoyer. Option
-désactivée, ils ne sont ni lus ni commandables, et un climatiseur déjà
-ajouté refuse les commandes.
+30 °C, arrondie au degré. Une valeur hors de ces bornes est refusée sans rien
+envoyer. Avant chaque commande, l'appareil est relu : hors ligne ou sans
+réponse, rien n'est envoyé.
+
+- **Marche et arrêt** : seuls les boutons de Gladys marchent. Un « allume »
+  ou « éteins » d'un assistant vocal, de HomeKit ou du MCP vise l'état
+  Marche/Arrêt, en lecture seule : il est refusé.
+- **Mode et consigne** : quand l'option est cochée, HomeKit, un assistant
+  vocal, le MCP et les scènes peuvent les changer, **chauffage compris**.
+  Ne cochez l'option que si cela vous convient.
+- **Option décochée** : les climatiseurs ne sont plus lus, leurs états ne
+  sont plus envoyés et toute commande est refusée. Un climatiseur déjà ajouté
+  reste dans la liste des appareils, avec le badge « injoignable ».
 
 ## Déclencheur de scène « Cycle terminé »
 
@@ -63,8 +73,15 @@ n'importe lequel). Il part une fois par cycle, quand l'appareil passe d'un
 cycle (en marche, fin de cycle, en pause ou différé) à « Terminé ». Variables
 pour les actions : nom de l'appareil, type, cycle. Il est vu à la lecture
 suivante : jusqu'à l'intervalle de rafraîchissement de retard (60 s par
-défaut). Un cycle fini pendant un redémarrage de l'intégration n'est pas
-signalé.
+défaut). Il n'est pas signalé :
+
+- quand l'appareil passe directement de « En marche » à « En veille » sans
+  passer par « Terminé » ;
+- quand le cycle finit pendant un redémarrage de l'intégration.
+
+Après une coupure (réseau, cloud injoignable, pause), l'événement peut
+arriver en retard : à la première lecture qui suit le retour, si
+l'appareil est encore « Terminé ».
 
 ## Mise en place
 
@@ -140,5 +157,6 @@ et l'identifiant de compte, le compte auquel ils appartiennent sous forme
 d'empreinte de la marque, de la région et de l'e-mail, la fin d'une pause
 429, et un arrêt (identifiants refusés, compte verrouillé, réponse
 inattendue, session refusée et son prochain essai) lié à une empreinte
-salée du compte et du mot de passe. Ni l'e-mail ni le mot de passe. Rien
+courte (HMAC, 4 caractères) du compte et du mot de passe, qui sert seulement
+à voir qu'ils ont changé. Ni l'e-mail ni le mot de passe. Rien
 n'est envoyé ailleurs qu'au cloud Whirlpool.

@@ -1,6 +1,6 @@
 {
   "name": "gladys-whirlpool",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Whirlpool, Maytag and KitchenAid (6th Sense Live) for Gladys Assistant: washers, dryers and ovens read only, cycle end scene trigger, air conditioners behind an option.",
   "type": "module",
